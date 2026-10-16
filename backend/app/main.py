@@ -1,5 +1,6 @@
 from collections import Counter
 from datetime import datetime, timezone
+import time
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -49,9 +50,19 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup() -> None:
-    Base.metadata.create_all(bind=engine)
-    with SessionLocal() as db:
-        seed_defaults(db)
+    last_error: Exception | None = None
+    for attempt in range(1, 31):
+        try:
+            Base.metadata.create_all(bind=engine)
+            with SessionLocal() as db:
+                db.execute(text("SELECT 1"))
+                seed_defaults(db)
+            return
+        except Exception as exc:
+            last_error = exc
+            print(f"Database startup check failed on attempt {attempt}/30: {exc}", flush=True)
+            time.sleep(2)
+    raise RuntimeError(f"Database did not become ready after startup retries: {last_error}")
 
 
 def story_summary(story: Story) -> StorySummary:
@@ -533,5 +544,7 @@ def get_report(sprint_id: str, db: Session = Depends(get_db), user: User = Depen
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     return report
+
+
 
 
