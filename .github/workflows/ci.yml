@@ -15,7 +15,6 @@ on:
       - '.dockerignore'
 
 jobs:
-  # Unit tests on every push and PR. GitHub-hosted runner.
   test:
     runs-on: ubuntu-latest
     steps:
@@ -26,13 +25,24 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install dependencies
-        run: pip install -r hello/requirements.txt httpx pytest
+      - uses: actions/setup-node@v4.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Unit tests
-        run: cd hello && pytest tests/ -v
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
 
-  # Push to staging → fires Coolify staging webhook after tests pass.
+      - name: Backend smoke check
+        run: cd backend && python ci_check.py
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Frontend build
+        run: cd frontend && npm run build
+
   deploy-staging:
     needs: test
     if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
@@ -43,7 +53,6 @@ jobs:
           curl -fsSL -X POST "${{ secrets.COOLIFY_DEPLOY_WEBHOOK_STAGING }}" \
             -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}"
 
-  # Push to main → fires Coolify prod webhook after tests pass.
   deploy-prod:
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -53,3 +62,4 @@ jobs:
         run: |
           curl -fsSL -X POST "${{ secrets.COOLIFY_DEPLOY_WEBHOOK_PROD }}" \
             -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}"
+
